@@ -1,4 +1,4 @@
-name: Build Unsigned Production APK from AAB
+name: Build APK from AAB
 
 on:
   push:
@@ -41,14 +41,8 @@ jobs:
     - name: Install dependencies and set up project
       run: yarn setup
 
-    # Disable signing configuration for unsigned build
-    - name: Modify build.gradle to remove signing
-      run: |
-        sed -i 's/signingConfig signingConfigs.release/\/\//g' platforms/android/app/build.gradle
-        cat platforms/android/app/build.gradle # Verify changes
-
     - name: Build unsigned release AAB
-      run: yarn build android ${{ inputs.build_type }} prod
+      run: yarn build android ${{ inputs.build_type }} dev
 
     - name: Download bundletool
       run: |
