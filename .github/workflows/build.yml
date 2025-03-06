@@ -52,7 +52,7 @@ jobs:
 
     - name: Download bundletool
       run: |
-        wget https://repo1.maven.org/maven2/com/android/tools/build/bundles/bundles/1.12.0/bundles-1.12.0.jar -O bundletool.jar
+        wget https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar -O bundletool.jar
 
     - name: Build universal APK from AAB
       run: |
