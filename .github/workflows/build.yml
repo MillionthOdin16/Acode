@@ -44,18 +44,8 @@ jobs:
     - name: Build unsigned release AAB
       run: yarn build android ${{ inputs.build_type }} dev
 
-    - name: Download bundletool
-      run: |
-        wget https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar -O bundletool.jar
-
-    - name: Build universal APK from AAB
-      run: |
-        java -jar bundletool.jar build-apks --bundle=platforms/android/app/build/outputs/bundle/release/app-release.aab --mode=universal --output=platforms/android/app/build/outputs/apk/release/app-release-unsigned.apks
-        unzip platforms/android/app/build/outputs/apk/release/app-release-unsigned.apks -d platforms/android/app/build/outputs/apk/release/
-        mv platforms/android/app/build/outputs/apk/release/universal.apk platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
-
-    - name: Upload unsigned APK
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Acode-Unsigned-Release
-        path: platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
+        name: app-debug.apk
+        path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
