@@ -1,4 +1,4 @@
-name: Build Unsigned Production APK
+name: Build Unsigned Production APK from AAB
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
         description: 'Build type (free/paid)'
         required: true
         default: 'free'
-        type: choice # Add input validation
+        type: choice
         options:
           - 'free'
           - 'paid'
@@ -47,8 +47,18 @@ jobs:
         sed -i 's/signingConfig signingConfigs.release/\/\//g' platforms/android/app/build.gradle
         cat platforms/android/app/build.gradle # Verify changes
 
-    - name: Build unsigned release APK
-      run: yarn build android ${{ inputs.build_type }} prod -- --packageType=apk
+    - name: Build unsigned release AAB
+      run: yarn build android ${{ inputs.build_type }} prod
+
+    - name: Download bundletool
+      run: |
+        wget https://repo1.maven.org/maven2/com/android/tools/build/bundles/bundles/1.12.0/bundles-1.12.0.jar -O bundletool.jar
+
+    - name: Build universal APK from AAB
+      run: |
+        java -jar bundletool.jar build-apks --bundle=platforms/android/app/build/outputs/bundle/release/app-release.aab --mode=universal --output=platforms/android/app/build/outputs/apk/release/app-release-unsigned.apks
+        unzip platforms/android/app/build/outputs/apk/release/app-release-unsigned.apks -d platforms/android/app/build/outputs/apk/release/
+        mv platforms/android/app/build/outputs/apk/release/universal.apk platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
 
     - name: Upload unsigned APK
       uses: actions/upload-artifact@v4
