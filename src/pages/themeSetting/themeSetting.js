@@ -2,6 +2,7 @@ import "./themeSetting.scss";
 import Page from "components/page";
 import searchBar from "components/searchbar";
 import TabView from "components/tabView";
+import alert from "dialogs/alert";
 import Ref from "html-tag-js/ref";
 import actionStack from "lib/actionStack";
 import removeAds from "lib/removeAds";
@@ -193,7 +194,14 @@ console.log(message);`);
 	 * @param {string} param0.theme
 	 */
 	function setEditorTheme({ caption, theme }) {
-		editorManager.editor.setTheme(theme); // main editor
+		if (appSettings.value.appTheme.toLowerCase() === "system") {
+			alert(
+				"Info",
+				"App theme is set to 'System'. Changing the editor theme will not affect the editor appearance.",
+			);
+			return;
+		}
+		editorManager.editor.setTheme(theme);
 		editor.setTheme(theme); // preview
 		appSettings.update(
 			{
@@ -238,8 +246,8 @@ console.log(message);`);
 				<div className="container">
 					<span className="text">{name}</span>
 				</div>
-				{isCurrent ? check : <></>}
-				{isPremium ? star : <></>}
+				{isCurrent && check}
+				{isPremium && star}
 			</div>
 		);
 

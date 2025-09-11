@@ -1,20 +1,18 @@
-import initColorView from "ace/colorView";
-import { deactivateColorView } from "ace/colorView";
+import sidebarApps from "sidebarApps";
+import initColorView, { deactivateColorView } from "ace/colorView";
 import { setCommands, setKeyBindings } from "ace/commands";
-import touchListeners from "ace/touchHandler";
-import { scrollAnimationFrame } from "ace/touchHandler";
+import touchListeners, { scrollAnimationFrame } from "ace/touchHandler";
 import list from "components/collapsableList";
 import quickTools from "components/quickTools";
 import ScrollBar from "components/scrollbar";
 import SideButton, { sideButtonContainer } from "components/sideButton";
-import keyboardHandler from "handlers/keyboard";
-import { keydownState } from "handlers/keyboard";
-import sidebarApps from "sidebarApps";
+import keyboardHandler, { keydownState } from "handlers/keyboard";
+import actions from "handlers/quickTools";
 import EditorFile from "./editorFile";
 import appSettings from "./settings";
 import {
-	HARDKEYBOARDHIDDEN_NO,
 	getSystemConfiguration,
+	HARDKEYBOARDHIDDEN_NO,
 } from "./systemConfiguration";
 
 /**
@@ -668,6 +666,21 @@ async function EditorManager($header, $body) {
 			if (manager.activeFile && manager.activeFile.type === "editor") {
 				manager.activeFile.session.selection.clearSelection();
 			}
+		}
+
+		file.tab.classList.add("active");
+		file.tab.scrollIntoView();
+
+		if (file?.hideQuickTools) {
+			root.classList.add("hide-floating-button");
+			actions("set-height", { height: 0, save: false });
+		} else {
+			root.classList.remove("hide-floating-button");
+			const quickToolsHeight =
+				appSettings.value.quickTools !== undefined
+					? appSettings.value.quickTools
+					: 1;
+			actions("set-height", { height: quickToolsHeight, save: true });
 		}
 
 		$header.text = file.filename;

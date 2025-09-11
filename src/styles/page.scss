@@ -73,7 +73,7 @@ body {
               transform: translate3d(-110px, 0, 0);
             }
 
-            > header {
+            >header {
               top: 10px;
               right: 10px;
               height: 40px;
@@ -106,7 +106,7 @@ body {
             width: calc(100% - 140px);
           }
 
-          > header {
+          >header {
             display: flex;
             justify-content: flex-end;
 
@@ -118,26 +118,26 @@ body {
 
         &.primary {
           &.top-bar {
-            > main {
+            >main {
               height: calc(100vh - 30px);
               min-height: calc(100vh - 30px);
             }
           }
 
-          > main {
+          >main {
             height: 100vh;
             min-height: 100vh;
           }
 
           &[footer-height="1"] {
             &.top-bar {
-              > main {
+              >main {
                 height: calc(100vh - 70px);
                 min-height: calc(100vh - 70px);
               }
             }
 
-            > main {
+            >main {
               height: calc(100vh - 40px);
               min-height: calc(100vh - 40px);
             }
@@ -247,14 +247,14 @@ wc-page {
   }
 
   .main {
-    > .options {
+    >.options {
       display: flex;
       height: 40px;
       min-height: 40px;
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
       box-shadow: 0 1px 4px var(--box-shadow-color);
 
-      > * {
+      >* {
         position: relative;
         display: flex;
         flex: 1;
@@ -303,6 +303,7 @@ wc-page {
     }
 
     &.top-bar {
+
       main,
       .main {
         height: calc(100vh - 115px);
@@ -331,6 +332,7 @@ wc-page {
     }
 
     &.top-bar {
+
       .main,
       main {
         height: calc(100vh - 155px);
@@ -359,6 +361,7 @@ wc-page {
     }
 
     &.top-bar {
+
       .main,
       main {
         height: calc(100vh - 195px);

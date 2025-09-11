@@ -1,18 +1,19 @@
+import fsOperation from "fileSystem";
 import ajax from "@deadlyjack/ajax";
 import { resetKeyBindings } from "ace/commands";
 import settingsPage from "components/settingsPage";
 import loader from "dialogs/loader";
-import fsOperation from "fileSystem";
 import actions from "handlers/quickTools";
 import actionStack from "lib/actionStack";
 import constants from "lib/constants";
 import lang from "lib/lang";
 import openFile from "lib/openFile";
 import appSettings from "lib/settings";
+import FontManager from "pages/fontManager";
 import QuickToolsSettings from "pages/quickTools";
-import Url from "utils/Url";
 import encodings, { getEncoding } from "utils/encodings";
 import helpers from "utils/helpers";
+import Url from "utils/Url";
 
 export default function otherSettings() {
 	const values = appSettings.value;
@@ -150,6 +151,11 @@ export default function otherSettings() {
 			index: 0,
 		},
 		{
+			key: "fontManager",
+			text: strings["fonts"],
+			index: 1,
+		},
+		{
 			key: "showSideButtons",
 			text: strings["show side buttons"],
 			checkbox: values.showSideButtons,
@@ -172,11 +178,15 @@ export default function otherSettings() {
 			key: "defaultFileEncoding",
 			text: strings["default file encoding"],
 			value: values.defaultFileEncoding,
-			valueText: (value) => getEncoding(value).label,
-			select: Object.keys(encodings).map((id) => {
-				const encoding = encodings[id];
-				return [id, encoding.label];
-			}),
+			valueText: (value) =>
+				value === "auto" ? strings.auto || "Auto" : getEncoding(value).label,
+			select: [
+				["auto", strings.auto || "Auto"],
+				...Object.keys(encodings).map((id) => {
+					const encoding = encodings[id];
+					return [id, encoding.label];
+				}),
+			],
 		},
 	];
 
@@ -196,6 +206,10 @@ export default function otherSettings() {
 
 			case "quickToolsSettings":
 				QuickToolsSettings();
+				return;
+
+			case "fontManager":
+				FontManager();
 				return;
 
 			case "console": {

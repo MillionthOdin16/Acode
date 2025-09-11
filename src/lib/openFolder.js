@@ -1,3 +1,5 @@
+import fsOperation from "fileSystem";
+import sidebarApps from "sidebarApps";
 import collapsableList from "components/collapsableList";
 import Sidebar from "components/sidebar";
 import tile from "components/tile";
@@ -7,12 +9,10 @@ import confirm from "dialogs/confirm";
 import prompt from "dialogs/prompt";
 import select from "dialogs/select";
 import escapeStringRegexp from "escape-string-regexp";
-import fsOperation from "fileSystem";
 import FileBrowser from "pages/fileBrowser";
-import sidebarApps from "sidebarApps";
+import helpers from "utils/helpers";
 import Path from "utils/Path";
 import Url from "utils/Url";
-import helpers from "utils/helpers";
 import constants from "./constants";
 import * as FileList from "./fileList";
 import openFile from "./openFile";
@@ -72,7 +72,6 @@ function openFolder(_path, opts = {}) {
 	}
 
 	const $root = collapsableList(title, "folder", {
-		tail: <Tail target={() => $root.$title} />,
 		allCaps: true,
 		ontoggle: () => expandList($root),
 	});
@@ -115,7 +114,6 @@ function openFolder(_path, opts = {}) {
 			$root.expand();
 		},
 	};
-	addedFolder.push(folder);
 
 	editorManager.emit("update", "add-folder");
 	editorManager.onupdate("add-folder", event);
@@ -137,6 +135,7 @@ function openFolder(_path, opts = {}) {
 		}
 
 		folder.listFiles = listFiles;
+		addedFolder.push(folder);
 	})();
 
 	if (listState[_path]) {
@@ -294,19 +293,21 @@ async function handleContextmenu(type, url, name, $target) {
 			options.push(INSTALL_PLUGIN);
 		}
 	} else if (helpers.isDir(type)) {
-		options = [
-			COPY,
-			CUT,
-			REMOVE,
-			RENAME,
-			PASTE,
-			NEW_FILE,
-			NEW_FOLDER,
-			OPEN_FOLDER,
-			INSERT_FILE,
-		];
+		options = [COPY, CUT, REMOVE, RENAME];
+
+		if (clipBoard.url != null) {
+			options.push(PASTE);
+		}
+
+		options.push(NEW_FILE, NEW_FOLDER, OPEN_FOLDER, INSERT_FILE);
 	} else if (type === "root") {
-		options = [PASTE, NEW_FILE, NEW_FOLDER, INSERT_FILE, CLOSE_FOLDER];
+		options = [];
+
+		if (clipBoard.url != null) {
+			options.push(PASTE);
+		}
+
+		options.push(NEW_FILE, NEW_FOLDER, INSERT_FILE, CLOSE_FOLDER);
 	}
 
 	if (clipBoard.action) options.push(CANCEL);
@@ -526,6 +527,32 @@ function execOperation(type, action, url, $target, name) {
 	}
 
 	async function paste() {
+		if (clipBoard.url == null) {
+			alert(strings.warning, "Nothing to paste");
+			return;
+		}
+
+		// Prevent pasting a folder into itself or its subdirectories
+		if (helpers.isDir(clipBoard.$el.dataset.type)) {
+			const sourceUrl = Url.parse(clipBoard.url).url;
+			const targetUrl = Url.parse(url).url;
+
+			// Check if trying to paste folder into itself
+			if (sourceUrl === targetUrl) {
+				alert(strings.warning, "Cannot paste a folder into itself");
+				return;
+			}
+
+			// Check if trying to paste folder into one of its subdirectories
+			if (
+				targetUrl.startsWith(sourceUrl + "/") ||
+				targetUrl.startsWith(sourceUrl + "\\")
+			) {
+				alert(strings.warning, "Cannot paste a folder into its subdirectory");
+				return;
+			}
+		}
+
 		let CASE = "";
 		const $src = clipBoard.$el;
 		const srcType = $src.dataset.type;
@@ -544,17 +571,56 @@ function execOperation(type, action, url, $target, name) {
 			const possibleConflictUrl = Url.join(url, itemName);
 			const doesExist = await fsOperation(possibleConflictUrl).exists();
 			if (doesExist) {
-				alert(
-					strings.error,
+				let confirmation = await confirm(
+					strings.warning,
 					strings["already exists"]
 						? strings["already exists"].replace("{name}", itemName)
 						: `"${itemName}" already exists in this location.`,
 				);
-				return;
+				if (!confirmation) return;
 			}
 			let newUrl;
-			if (clipBoard.action === "cut") newUrl = await fs.moveTo(url);
-			else newUrl = await fs.copyTo(url);
+			if (clipBoard.action === "cut") {
+				// Special handling for Termux SAF folders - move manually due to SAF limitations
+				if (
+					clipBoard.url.startsWith("content://com.termux.documents/tree/") &&
+					IS_DIR
+				) {
+					const moveRecursively = async (sourceUrl, targetParentUrl) => {
+						const sourceFs = fsOperation(sourceUrl);
+						const sourceName = Url.basename(sourceUrl);
+						const targetUrl = Url.join(targetParentUrl, sourceName);
+
+						// Create target folder
+						await fsOperation(targetParentUrl).createDirectory(sourceName);
+
+						// Get all entries in source folder
+						const entries = await sourceFs.lsDir();
+
+						// Move all files and folders recursively
+						for (const entry of entries) {
+							if (entry.isDirectory) {
+								await moveRecursively(entry.url, targetUrl);
+							} else {
+								const fileContent = await fsOperation(entry.url).readFile();
+								const fileName = entry.name || Url.basename(entry.url);
+								await fsOperation(targetUrl).createFile(fileName, fileContent);
+								await fsOperation(entry.url).delete();
+							}
+						}
+
+						// Delete the now-empty source folder
+						await sourceFs.delete();
+						return targetUrl;
+					};
+
+					newUrl = await moveRecursively(clipBoard.url, url);
+				} else {
+					newUrl = await fs.moveTo(url);
+				}
+			} else {
+				newUrl = await fs.copyTo(url);
+			}
 			const { name: newName } = await fsOperation(newUrl).stat();
 			stopLoading();
 			/**
@@ -740,7 +806,6 @@ function appendList($target, $list) {
  */
 function createFolderTile(name, url) {
 	const $list = collapsableList(name, "folder", {
-		tail: <Tail target={() => $list.$title} />,
 		ontoggle: () => expandList($list),
 	});
 	const { $title } = $list;
@@ -761,36 +826,12 @@ function createFileTile(name, url) {
 	const $tile = tile({
 		lead: <span className={helpers.getIconForFile(name)}></span>,
 		text: name,
-		tail: <Tail target={() => $tile} />,
 	});
 	$tile.dataset.url = url;
 	$tile.dataset.name = name;
 	$tile.dataset.type = "file";
 
 	return $tile;
-}
-
-/**
- * Create a tail for the tile
- * @param {object} param0
- * @param {HTMLElement} param0.target
- * @returns {HTMLElement}
- */
-function Tail({ target }) {
-	return (
-		<span
-			className="icon more_vert"
-			attr-action="close"
-			onclick={(e) => {
-				e.stopPropagation();
-				e.preventDefault();
-				handleItems({
-					target: target(),
-					type: "contextmenu",
-				});
-			}}
-		></span>
-	);
 }
 
 /**

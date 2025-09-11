@@ -1,19 +1,21 @@
 import "./style.scss";
 
+import fsOperation from "fileSystem";
 import ajax from "@deadlyjack/ajax";
 import collapsableList from "components/collapsableList";
 import Sidebar from "components/sidebar";
+import alert from "dialogs/alert";
 import prompt from "dialogs/prompt";
 import select from "dialogs/select";
-import fsOperation from "fileSystem";
 import purchaseListener from "handlers/purchase";
 import constants from "lib/constants";
 import InstallState from "lib/installState";
+import loadPlugin from "lib/loadPlugin";
 import settings from "lib/settings";
 import FileBrowser from "pages/fileBrowser";
 import plugin from "pages/plugin";
-import Url from "utils/Url";
 import helpers from "utils/helpers";
+import Url from "utils/Url";
 
 /** @type {HTMLElement} */
 let $installed = null;
@@ -28,17 +30,23 @@ const LIMIT = 50;
 let currentPage = 1;
 let hasMore = true;
 let isLoading = false;
+let currentFilter = null;
+let filterCurrentPage = 1;
+let filterHasMore = true;
+let isFilterLoading = false;
 
 const $header = (
 	<div className="header">
 		<div className="title">
 			<span>{strings.plugins}</span>
-			<button type="button" className="icon-button" onclick={filterPlugins}>
-				<span className="icon tune" />
-			</button>
-			<button type="button" className="icon-button" onclick={addSource}>
-				<span className="icon more_vert" />
-			</button>
+			<div className="actions">
+				<button type="button" className="icon-button" onclick={filterPlugins}>
+					<span className="icon tune" />
+				</button>
+				<button type="button" className="icon-button" onclick={addSource}>
+					<span className="icon add" />
+				</button>
+			</div>
 		</div>
 		<input
 			oninput={searchPlugin}
@@ -48,6 +56,10 @@ const $header = (
 		/>
 	</div>
 );
+
+const $style = <style></style>;
+/** @type {Set<HTMLElement>} */
+const $scrollableLists = new Set();
 
 let searchTimeout = null;
 let installedPlugins = [];
@@ -96,11 +108,11 @@ function initApp(el) {
 	if (!$installed) {
 		$installed = collapsableList(strings.installed);
 		$installed.ontoggle = loadInstalled;
-		//$installed.expand();
 		container.append($installed);
 	}
 
 	Sidebar.on("show", onSelected);
+	document.head.append($style);
 }
 
 async function handleScroll(e) {
@@ -110,6 +122,16 @@ async function handleScroll(e) {
 
 	if (scrollTop + clientHeight >= scrollHeight - 50) {
 		await loadMorePlugins();
+	}
+}
+
+async function handleFilterScroll(e) {
+	if (isFilterLoading || !filterHasMore || !currentFilter) return;
+
+	const { scrollTop, scrollHeight, clientHeight } = e.target;
+
+	if (scrollTop + clientHeight >= scrollHeight - 50) {
+		await loadFilteredPlugins(currentFilter, false);
 	}
 }
 
@@ -141,9 +163,47 @@ async function loadMorePlugins() {
 	}
 }
 
+async function loadFilteredPlugins(filterName, isInitial = false) {
+	if (isFilterLoading || !filterHasMore) return;
+
+	try {
+		isFilterLoading = true;
+
+		const plugins = await getFilteredPlugins(filterName, filterCurrentPage);
+
+		if (plugins.length < LIMIT) {
+			filterHasMore = false;
+		}
+
+		installedPlugins = await listInstalledPlugins();
+		const pluginElements = plugins.map(ListItem);
+
+		if (isInitial) {
+			$searchResult.append(...pluginElements);
+		} else {
+			$searchResult.append(...pluginElements);
+		}
+
+		filterCurrentPage++;
+		updateHeight($searchResult);
+	} catch (error) {
+		window.log("error", "Error loading filtered plugins:");
+		window.log("error", error);
+	} finally {
+		isFilterLoading = false;
+	}
+}
+
 async function searchPlugin() {
 	clearTimeout(searchTimeout);
 	searchTimeout = setTimeout(async () => {
+		// Clear filter when searching
+		currentFilter = null;
+		filterCurrentPage = 1;
+		filterHasMore = true;
+		isFilterLoading = false;
+		$searchResult.onscroll = null;
+
 		$searchResult.content = "";
 		const status = helpers.checkAPIStatus();
 		if (!status) {
@@ -186,14 +246,17 @@ async function filterPlugins() {
 
 	$searchResult.content = "";
 	const filterParam = filterOptions[filterName];
+	currentFilter = filterParam;
+	filterCurrentPage = 1;
+	filterHasMore = true;
+	isFilterLoading = false;
 
 	try {
 		$searchResult.classList.add("loading");
-		const plugins = await getFilteredPlugins(filterParam);
 		const filterMessage = (
 			<div className="filter-message">
 				<span>
-					Filter for <strong>{filterName}</strong>
+					Filtered by <strong>{filterName}</strong>
 				</span>
 				<span
 					className="icon clearclose close-button"
@@ -202,11 +265,18 @@ async function filterPlugins() {
 				/>
 			</div>
 		);
-		$searchResult.content = [filterMessage, ...plugins.map(ListItem)];
+		$searchResult.content = [filterMessage];
+		$searchResult.onscroll = handleFilterScroll;
+		await loadFilteredPlugins(filterParam, true);
 		updateHeight($searchResult);
 
 		function clearFilter() {
+			currentFilter = null;
+			filterCurrentPage = 1;
+			filterHasMore = true;
+			isFilterLoading = false;
 			$searchResult.content = "";
+			$searchResult.onscroll = null;
 			updateHeight($searchResult);
 		}
 	} catch (error) {
@@ -216,10 +286,6 @@ async function filterPlugins() {
 	} finally {
 		$searchResult.classList.remove("loading");
 	}
-}
-
-async function clearFilter() {
-	$searchResult.content = "";
 }
 
 async function addSource() {
@@ -306,7 +372,7 @@ async function listInstalledPlugins() {
 			const id = Url.basename(item.url);
 			const url = Url.join(item.url, "plugin.json");
 			const plugin = await fsOperation(url).readFile("json");
-			const iconUrl = getLocalRes(id, "icon.png");
+			const iconUrl = getLocalRes(id, plugin.icon);
 			plugin.icon = await helpers.toInternalUri(iconUrl);
 			plugin.installed = true;
 			return plugin;
@@ -315,19 +381,22 @@ async function listInstalledPlugins() {
 	return plugins;
 }
 
-async function getFilteredPlugins(filterName) {
+async function getFilteredPlugins(filterName, page = 1) {
 	try {
 		let response;
 		if (filterName === "top_rated") {
-			response = await fetch(`${constants.API_BASE}/plugins?explore=random`);
+			response = await fetch(
+				`${constants.API_BASE}/plugins?explore=random&page=${page}&limit=${LIMIT}`,
+			);
 		} else {
 			response = await fetch(
-				`${constants.API_BASE}/plugin?orderBy=${filterName}`,
+				`${constants.API_BASE}/plugin?orderBy=${filterName}&page=${page}&limit=${LIMIT}`,
 			);
 		}
 		return await response.json();
 	} catch (error) {
 		window.log("error", error);
+		return [];
 	}
 }
 
@@ -347,30 +416,63 @@ function updateHeight($el) {
 	removeHeight($installed, $el !== $installed);
 	removeHeight($explore, $el !== $explore);
 
-	let height = $header.getBoundingClientRect().height;
-	if ($el === $searchResult) {
-		height += 60;
-	} else {
-		height += $searchResult.getBoundingClientRect().height + 30;
-	}
+	try {
+		let height = $header?.getBoundingClientRect().height;
+		const tileHeight = $el.get(":scope>.tile")?.getBoundingClientRect().height;
+		if ($el === $searchResult) {
+			height += 60;
+		} else {
+			height += $searchResult?.getBoundingClientRect().height + tileHeight;
+		}
 
-	setHeight($el, height);
+		setHeight($el, height);
+	} catch (error) {
+		console.error(error);
+	}
 }
 
+/**
+ * Remove height styles from an element
+ * @param {HTMLElement} $el
+ * @param {Boolean} collapse
+ */
 function removeHeight($el, collapse = false) {
 	if (collapse) $el.collapse?.();
-	$el.style.removeProperty("max-height");
-	$el.style.removeProperty("height");
+
+	$scrollableLists.delete($el);
+	updateStyle();
 }
 
+/**
+ * Change the height of an element
+ * @param {HTMLElement} $el
+ * @param {Number} height
+ */
 function setHeight($el, height) {
+	$scrollableLists.add($el);
+
 	const calcHeight = height ? `calc(100% - ${height}px)` : "100%";
-	$el.style.maxHeight = calcHeight;
+	$el.dataset.height = calcHeight;
 	if ($el === $searchResult) {
 		$el.style.height = "fit-content";
 		return;
 	}
-	$el.style.height = calcHeight;
+
+	updateStyle();
+}
+
+function updateStyle() {
+	let style = "";
+
+	$scrollableLists.forEach(($el) => {
+		style += `
+			.list.collapsible[data-id="${$el.dataset.id}"] {
+				max-height: ${$el.dataset.height} !important;
+			}
+		`;
+	});
+
+	$style.innerHTML = style;
 }
 
 function getLocalRes(id, name) {
@@ -381,8 +483,15 @@ function ListItem({ icon, name, id, version, downloads, installed, source }) {
 	if (installed === undefined) {
 		installed = !!installedPlugins.find(({ id: _id }) => _id === id);
 	}
+	const disabledMap = settings.value.pluginsDisabled || {};
+	const enabled = disabledMap[id] !== true;
 	const $el = (
-		<div className="tile" data-plugin-id={id}>
+		<div
+			data-plugin-id={id}
+			data-plugin-enabled={enabled !== false}
+			className="tile"
+			style={enabled === false ? { opacity: 0.6 } : {}}
+		>
 			<span className="icon" style={{ backgroundImage: `url(${icon})` }} />
 			<span
 				className="text sub-text"
@@ -390,22 +499,20 @@ function ListItem({ icon, name, id, version, downloads, installed, source }) {
 			>
 				{name}
 			</span>
-			{installed ? (
-				<>
-					{source ? (
-						<span className="icon replay" data-action="rebuild-plugin" />
-					) : null}
-					<span className="icon more_vert" data-action="more-plugin-action" />
-				</>
-			) : (
-				<button
-					type="button"
-					className="install-btn"
-					data-action="install-plugin"
-				>
-					<span className="icon file_downloadget_app" />
-				</button>
-			)}
+			{installed
+				? <>
+						{source
+							? <span className="icon replay" data-action="rebuild-plugin" />
+							: null}
+						<span className="icon more_vert" data-action="more-plugin-action" />
+					</>
+				: <button
+						type="button"
+						className="install-btn"
+						data-action="install-plugin"
+					>
+						<span className="icon file_downloadget_app" />
+					</button>}
 		</div>
 	);
 
@@ -435,12 +542,14 @@ function ListItem({ icon, name, id, version, downloads, installed, source }) {
 					});
 
 				const isPaid = remotePlugin.price > 0;
-				[product] = await helpers.promisify(iap.getProducts, [
-					remotePlugin.sku,
-				]);
-				if (product) {
-					const purchase = await getPurchase(product.productId);
-					purchaseToken = purchase?.purchaseToken;
+				if (isPaid) {
+					[product] = await helpers.promisify(iap.getProducts, [
+						remotePlugin.sku,
+					]);
+					if (product) {
+						const purchase = await getPurchase(product.productId);
+						purchaseToken = purchase?.purchaseToken;
+					}
 				}
 
 				if (isPaid && !purchaseToken) {
@@ -455,7 +564,7 @@ function ListItem({ icon, name, id, version, downloads, installed, source }) {
 					iap.setPurchaseUpdatedListener(
 						...purchaseListener(onpurchase, onerror),
 					);
-					await helpers.promisify(iap.purchase, product.json);
+					await helpers.promisify(iap.purchase, product.productId);
 
 					async function onpurchase(e) {
 						const purchase = await getPurchase(product.productId);
@@ -475,12 +584,22 @@ function ListItem({ icon, name, id, version, downloads, installed, source }) {
 				}
 
 				const { default: installPlugin } = await import("lib/installPlugin");
-				await installPlugin(id, remotePlugin.name, purchaseToken);
+				await installPlugin(
+					id,
+					remotePlugin.name,
+					purchaseToken ? purchaseToken : undefined,
+				);
 
 				const searchInput = container.querySelector('input[name="search-ext"]');
 				if (searchInput) {
 					searchInput.value = "";
 					$searchResult.content = "";
+					// Reset filter state when clearing search results
+					currentFilter = null;
+					filterCurrentPage = 1;
+					filterHasMore = true;
+					isFilterLoading = false;
+					$searchResult.onscroll = null;
 					updateHeight($searchResult);
 					$installed.expand();
 				}
@@ -549,7 +668,9 @@ async function loadAd(el) {
 			await window.iad.load();
 			el.textContent = oldText;
 		}
-	} catch (error) {}
+	} catch (error) {
+		console.error(error);
+	}
 }
 
 async function uninstall(id) {
@@ -567,6 +688,12 @@ async function uninstall(id) {
 		if (searchInput) {
 			searchInput.value = "";
 			$searchResult.content = "";
+			// Reset filter state when clearing search results
+			currentFilter = null;
+			filterCurrentPage = 1;
+			filterHasMore = true;
+			isFilterLoading = false;
+			$searchResult.onscroll = null;
 			updateHeight($searchResult);
 			if ($installed.collapsed) {
 				$installed.expand();
@@ -583,13 +710,20 @@ async function uninstall(id) {
 }
 
 async function more_plugin_action(id, pluginName) {
-	let actions;
+	const disabledMap = settings.value.pluginsDisabled || {};
+	const enabled = disabledMap[id] !== true;
+	let actions = [];
 	const pluginSettings = settings.uiSettings[`plugin-${id}`];
+
 	if (pluginSettings) {
-		actions = [strings.settings, strings.uninstall];
-	} else {
-		actions = [strings.uninstall];
+		actions.push(strings.settings);
 	}
+
+	actions.push(
+		enabled ? strings.disable || "Disable" : strings.enable || "Enable",
+	);
+
+	actions.push(strings.uninstall);
 	const action = await select("Action", actions);
 	if (!action) return;
 	switch (action) {
@@ -604,6 +738,66 @@ async function more_plugin_action(id, pluginName) {
 			}
 			if (!$installed.collapsed) {
 				$installed.ontoggle();
+			}
+			break;
+		case strings.disable || "Disable":
+		// fallthrough
+		case strings.enable || "Enable":
+			if (enabled) {
+				disabledMap[id] = true; // Disabling
+			} else {
+				delete disabledMap[id]; // Enabling
+			}
+
+			settings.update({ pluginsDisabled: disabledMap }, false);
+
+			// INFO: I don't know how to get all loaded plugins(not installed).
+			const choice = await select(
+				strings.info,
+				[
+					// { value: "reload_plugins", text: strings["reload_plugins"] || "Reload Plugins" },
+					{
+						value: "restart_app",
+						text: strings["restart_app"] || "Restart App",
+					},
+					{
+						value: "single",
+						text: enabled
+							? strings["disable_plugin"] || "Disable this Plugin"
+							: strings["enable_plugin"] || "Enable this Plugin",
+					},
+				],
+				{
+					default: "single",
+				},
+			);
+
+			// if (choice === "reload_plugins") {
+			// 	// Unmount all currently loaded plugins before reloading
+			// 	if (window.acode && typeof window.acode.getLoadedPluginIds === "function") {
+			// 		for (const pluginId of window.acode.getLoadedPluginIds()) {
+			// 			window.acode.unmountPlugin(pluginId);
+			// 		}
+			// 	}
+			// 	await window.loadPlugins?.();
+			// 	window.toast(strings.success);
+			// }
+			if (choice === "restart_app") {
+				location.reload();
+			} else if (choice === "single") {
+				if (enabled) {
+					window.acode.unmountPlugin(id);
+					window.toast(strings["plugin_disabled"] || "Plugin Disabled");
+				} else {
+					await loadPlugin(id);
+					window.toast(strings["plugin_enabled"] || "Plugin enabled");
+				}
+				if (!$explore.collapsed) {
+					$explore.ontoggle();
+				}
+				if (!$installed.collapsed) {
+					$installed.ontoggle();
+				}
 			}
 			break;
 	}

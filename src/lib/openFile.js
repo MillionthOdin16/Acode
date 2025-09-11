@@ -1,12 +1,13 @@
+import fsOperation from "fileSystem";
 import AudioPlayer from "components/audioPlayer";
 import alert from "dialogs/alert";
 import confirm from "dialogs/confirm";
 import loader from "dialogs/loader";
-import fsOperation from "fileSystem";
 import { reopenWithNewEncoding } from "palettes/changeEncoding";
-import { decode } from "utils/encodings";
+import { decode, detectEncoding } from "utils/encodings";
 import helpers from "utils/helpers";
 import EditorFile from "./editorFile";
+import fileTypeHandler from "./fileTypeHandler";
 import recents from "./recents";
 import appSettings from "./settings";
 
@@ -83,7 +84,7 @@ export default async function openFile(file, options = {}) {
 		const fileInfo = await fs.stat();
 		const name = fileInfo.name || file.filename || uri;
 		const readOnly = fileInfo.canWrite ? false : true;
-		const createEditor = (isUnsaved, text) => {
+		const createEditor = (isUnsaved, text, detectedEncoding) => {
 			new EditorFile(name, {
 				uri,
 				text,
@@ -92,10 +93,35 @@ export default async function openFile(file, options = {}) {
 				render,
 				onsave,
 				readOnly,
-				encoding,
+				encoding: detectedEncoding || encoding,
 				SAFMode: mode,
 			});
 		};
+
+		// Check for registered file handlers
+		const customHandler = fileTypeHandler.getFileHandler(name);
+		if (customHandler) {
+			try {
+				await customHandler.handleFile({
+					name,
+					uri,
+					stats: fileInfo,
+					readOnly,
+					options: {
+						cursorPos,
+						render,
+						onsave,
+						encoding,
+						mode,
+						createEditor,
+					},
+				});
+				return;
+			} catch (error) {
+				console.error(`File handler '${customHandler.id}' failed:`, error);
+				// Continue with default handling if custom handler fails
+			}
+		}
 
 		if (text) {
 			// If file is not opened and has unsaved text
@@ -359,12 +385,28 @@ export default async function openFile(file, options = {}) {
 		}
 
 		const binData = await fs.readFile();
-		const fileContent = await decode(
-			binData,
-			file.encoding || appSettings.value.defaultFileEncoding,
-		);
 
-		createEditor(false, fileContent);
+		// Determine encoding: if explicit provided use it, otherwise
+		// if settings.defaultFileEncoding === 'auto' then detect; else use the default as-is
+		let detectedEncoding = file.encoding || encoding;
+		if (!detectedEncoding) {
+			const defaultSetting = appSettings.value.defaultFileEncoding;
+			if (defaultSetting === "auto") {
+				try {
+					detectedEncoding = await detectEncoding(binData);
+					if (detectedEncoding === "auto") detectedEncoding = "UTF-8";
+				} catch (error) {
+					console.warn("Encoding detection failed, using UTF-8:", error);
+					detectedEncoding = "UTF-8";
+				}
+			} else {
+				detectedEncoding = defaultSetting || "UTF-8";
+			}
+		}
+
+		const fileContent = await decode(binData, detectedEncoding);
+
+		createEditor(false, fileContent, detectedEncoding);
 		if (mode !== "single") recents.addFile(uri);
 		return;
 	} catch (error) {

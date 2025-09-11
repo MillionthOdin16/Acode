@@ -22,6 +22,7 @@ function initApp(el) {
 	container = el;
 	container.classList.add("files");
 	container.setAttribute("data-msg", strings["open folder"]);
+	container.style.overflowX = "auto";
 	container.addEventListener("click", clickHandler);
 	editorManager.on(
 		["new-file", "int-open-file-list", "remove-file"],
@@ -103,7 +104,11 @@ export function fixHeight(target) {
 		if (list === activeFileList) return;
 
 		if (target === activeFileList) {
-			if (list.collapsed) return;
+			if (list.collapsed) {
+				list.style.removeProperty("max-height");
+				list.style.removeProperty("height");
+				return;
+			}
 			target = list;
 		}
 
@@ -113,7 +118,11 @@ export function fixHeight(target) {
 			return;
 		}
 
-		if (list.collapsed) return;
+		if (list.collapsed) {
+			list.style.removeProperty("max-height");
+			list.style.removeProperty("height");
+			return;
+		}
 
 		list.collapse();
 		list.style.removeProperty("max-height");

@@ -1,11 +1,11 @@
 import "./styles.scss";
+import fsOperation from "fileSystem";
 import addTouchListeners from "ace/touchHandler";
 import autosize from "autosize";
 import Checkbox from "components/checkbox";
-import Sidebar from "components/sidebar";
-import { preventSlide } from "components/sidebar";
+import Sidebar, { preventSlide } from "components/sidebar";
 import escapeStringRegexp from "escape-string-regexp";
-import fsOperation from "fileSystem";
+import Reactive from "html-tag-js/reactive";
 import Ref from "html-tag-js/ref";
 import files, { Tree } from "lib/fileList";
 import openFile from "lib/openFile";
@@ -18,18 +18,18 @@ const results = [];
 const filesSearched = [];
 const filesReplaced = [];
 
-const $container = new Ref();
-const $regExp = new Ref();
-const $search = new Ref();
-const $replace = new Ref();
-const $exclude = new Ref();
-const $include = new Ref();
-const $wholeWord = new Ref();
-const $caseSensitive = new Ref();
-const $btnReplaceAll = new Ref();
-const $resultOverview = new Ref();
-const $error = <></>;
-const $progress = <>0</>;
+const $container = Ref();
+const $regExp = Ref();
+const $search = Ref();
+const $replace = Ref();
+const $exclude = Ref();
+const $include = Ref();
+const $wholeWord = Ref();
+const $caseSensitive = Ref();
+const $btnReplaceAll = Ref();
+const $resultOverview = Ref();
+const $error = Reactive();
+const $progress = Reactive();
 
 const resultOverview = {
 	filesCount: 0,
@@ -239,7 +239,7 @@ async function onWorkerMessage(e) {
 
 			const editorFile = editorManager.getFile(data, "uri");
 			if (editorFile) {
-				content = editorFile.session.getValue();
+				content = editorFile.session?.getValue() || "";
 			} else {
 				try {
 					content = await fsOperation(data).readFile(
@@ -529,7 +529,7 @@ function terminateWorker(initializeNewWorkers = true) {
  * @returns {Worker} A new Worker object that runs the code in 'searchInFilesWorker.build.js'.
  */
 function getWorker() {
-	return new Worker("./js/build/searchInFilesWorker.build.js");
+	return new Worker(new URL("./worker.js", import.meta.url));
 }
 
 /**
@@ -629,7 +629,7 @@ function Details({ onexpand }, children) {
 function Summary({ marker = true, className }, children) {
 	return (
 		<div onclick={toggle} attr-is="summary" className={className}>
-			{marker ? <span className="marker"></span> : <></>}
+			{marker && <span className="marker"></span>}
 			{children}
 		</div>
 	);

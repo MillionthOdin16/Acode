@@ -1,4 +1,4 @@
-@import '../styles/mixins.scss';
+@use "../styles/mixins.scss";
 
 .prompt {
   position: fixed;
@@ -195,7 +195,7 @@
       align-items: center;
 
       .loader {
-        @include circular-loader(30px);
+        @include mixins.circular-loader(30px);
         margin: 0 10px;
       }
 
